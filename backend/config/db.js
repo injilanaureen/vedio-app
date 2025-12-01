@@ -16,7 +16,12 @@ const connectDB = async () => {
     } catch (error) {
         console.error('❌ MongoDB connection error:', error.message);
         console.error('💡 Make sure MongoDB is running and the connection string is correct');
-        process.exit(1); // Exit the process if connection fails
+        // Don't exit in production - let server start and retry
+        if (process.env.NODE_ENV === 'production') {
+            console.error('⚠️ Server will continue but database operations will fail');
+        } else {
+            process.exit(1);
+        }
     }
 }
 
