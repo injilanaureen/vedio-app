@@ -5,7 +5,22 @@ const cors = require('cors');
 
 
 const app = express();
-app.use(cors());
+
+// CORS configuration - Allow frontend URL
+const corsOptions = {
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://vedio-app-front.onrender.com',
+    
+    'https://vedio-app-frontend.onrender.com'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
