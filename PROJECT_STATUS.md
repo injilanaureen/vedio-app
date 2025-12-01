@@ -166,3 +166,4 @@ Current state: Basic styling, needs:
 - Preview before upload implemented
 - Path normalization fixed for Windows/Mac compatibility
 
+
