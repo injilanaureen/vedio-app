@@ -68,5 +68,42 @@ router.post("/upload", upload.single("video"), async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// Delete video (user can only delete their own videos)
+router.delete("/delete/:videoId", async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'User ID is required' });
+        }
+
+        const video = await Video.findById(videoId);
+        if (!video) {
+            return res.status(404).json({ error: 'Video not found' });
+        }
+
+        // Check if user owns the video
+        if (video.user_id.toString() !== userId) {
+            return res.status(403).json({ error: 'You can only delete your own videos' });
+        }
+
+        // Delete video file (optional - requires fs module)
+        const fs = require('fs');
+        const path = require('path');
+        const filePath = path.join(__dirname, '..', video.file_path);
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+        await Video.findByIdAndDelete(videoId);
+        res.json({ success: true, message: 'Video deleted successfully' });
+    } catch (error) {
+        console.error('Delete error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;
 

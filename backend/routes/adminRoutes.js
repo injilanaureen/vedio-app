@@ -28,6 +28,33 @@ router.get("/email-logs", async (req, res) => {
   }
 });
 
+// Delete video (admin can delete any video)
+router.delete("/delete-video/:videoId", async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const Video = require("../models/Video");
+    const video = await Video.findById(videoId);
+    
+    if (!video) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    // Delete video file
+    const fs = require('fs');
+    const path = require('path');
+    const filePath = path.join(__dirname, '..', video.file_path);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    await Video.findByIdAndDelete(videoId);
+    res.json({ success: true, message: 'Video deleted successfully' });
+  } catch (error) {
+    console.error('Delete video error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // send email
 router.post("/send-email", async (req, res) => {
   try {

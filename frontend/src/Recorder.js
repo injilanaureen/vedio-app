@@ -8,19 +8,21 @@ export default function Recorder({ user ,setUser}) {
   const chunksRef = useRef([]);
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [chunks, setChunks] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [myVideos, setMyVideos] = useState([]);
   const [loadingVideos, setLoadingVideos] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [deletingVideo, setDeletingVideo] = useState(null);
   const timerIntervalRef = useRef(null);
   const startTimeRef = useRef(null);
 
   useEffect(() => {
+    let stream = null;
     async function setup() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         const videoElement = videoRef.current;
         if (videoElement) videoElement.srcObject = stream;
       } catch (err) {
@@ -30,14 +32,21 @@ export default function Recorder({ user ,setUser}) {
     setup();
 
     return () => {
-      const videoElement = videoRef.current;
-      if (videoElement?.srcObject) {
-        const stream = videoElement.srcObject;
+      if (stream) {
         stream.getTracks().forEach(t => t.stop());
       }
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, []);
+
+  // Cleanup preview URL when component unmounts or previewUrl changes
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
 
   // Fetch user's videos
   const fetchMyVideos = async () => {
@@ -65,7 +74,7 @@ export default function Recorder({ user ,setUser}) {
 
   useEffect(() => {
     fetchMyVideos();
-  }, [user]);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Timer effect
   useEffect(() => {
@@ -97,7 +106,6 @@ export default function Recorder({ user ,setUser}) {
     if (!stream) return showAlert.warning('Camera not available', 'Camera Error');
     
     chunksRef.current = [];
-    setChunks([]);
     setPreviewUrl(null);
     setRecordingTime(0);
     
@@ -111,7 +119,6 @@ export default function Recorder({ user ,setUser}) {
     mediaRecorderRef.current.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         chunksRef.current.push(e.data);
-        setChunks([...chunksRef.current]);
         console.log('Chunk received:', e.data.size, 'bytes. Total chunks:', chunksRef.current.length);
       }
     };
@@ -193,7 +200,6 @@ export default function Recorder({ user ,setUser}) {
       
       console.log('Upload response:', response.data);
       showAlert.success('Video uploaded successfully!', 'Upload Complete');
-      setChunks([]);
       chunksRef.current = [];
       setPreviewUrl(null);
       setRecordingTime(0);
@@ -208,7 +214,6 @@ export default function Recorder({ user ,setUser}) {
 
   const discardVideo = () => {
     chunksRef.current = [];
-    setChunks([]);
     setPreviewUrl(null);
     setRecordingTime(0);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -217,94 +222,179 @@ export default function Recorder({ user ,setUser}) {
     setRecording(false);
     setPaused(false);
   };
+
+  const deleteVideo = async (videoId) => {
+    const result = await showAlert.confirm(
+      'Are you sure you want to delete this video? This action cannot be undone.',
+      'Delete Video'
+    );
+    
+    if (!result.isConfirmed) return;
+
+    setDeletingVideo(videoId);
+    try {
+      await api.delete(`/vedio/delete/${videoId}`, {
+        data: { userId: user._id || user.id }
+      });
+      showAlert.success('Video deleted successfully!', 'Deleted');
+      fetchMyVideos();
+    } catch (err) {
+      showAlert.error('Failed to delete video: ' + (err.response?.data?.error || err.message), 'Delete Error');
+    } finally {
+      setDeletingVideo(null);
+    }
+  };
+
+  const downloadVideo = (videoUrl, videoId) => {
+    const link = document.createElement('a');
+    link.href = videoUrl;
+    link.download = `video-${videoId}.webm`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleLogout = () => {
     setUser(null);
     showAlert.success('Logged out successfully!', 'Logout');
   };
 
+  // Filter videos based on search query
+  const filteredVideos = myVideos.filter(video => {
+    const dateStr = new Date(video.created_at).toLocaleString().toLowerCase();
+    return dateStr.includes(searchQuery.toLowerCase());
+  });
+
   return (
     <div className="card">
-        <button 
-          onClick={handleLogout}
-          style={{ backgroundColor: '#f44336', color: 'white', padding: '8px 16px' }}
-        >
+      <div className="header">
+        <div className="header-info">
+          <h2>Welcome, {user.email}</h2>
+          <p className="text-muted">Record and manage your videos</p>
+        </div>
+        <button onClick={handleLogout} className="btn-danger btn-sm">
           Logout
         </button>
-      <h2>Welcome, {user.email}</h2>
-    
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        style={{ width: '100%', maxWidth: 600, background: '#000' }}
-      />
+      </div>
 
+      {/* Camera Preview */}
+      <div style={{ marginBottom: '24px' }}>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          style={{ width: '100%', maxWidth: 800, borderRadius: '12px', margin: '0 auto', display: 'block' }}
+        />
+      </div>
+
+      {/* Recording Timer */}
       {recording && (
-        <div style={{ marginTop: 12, fontSize: '18px', fontWeight: 'bold', color: '#d32f2f' }}>
+        <div className="recording-timer">
+          <span className="recording-dot"></span>
           Recording: {formatTime(recordingTime)}
         </div>
       )}
 
-      <div style={{ marginTop: 12, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {/* Control Buttons */}
+      <div className="flex gap-2" style={{ justifyContent: 'center', flexWrap: 'wrap', marginTop: '16px' }}>
         {!recording ? (
-          <button onClick={start}>Start Recording</button>
+          <button onClick={start} className="btn-success btn-lg">
+            ▶ Start Recording
+          </button>
         ) : (
           <>
             {!paused ? (
-              <button onClick={pause}>Pause</button>
+              <button onClick={pause} className="btn-warning">
+                ⏸ Pause
+              </button>
             ) : (
-              <button onClick={resume}>Resume</button>
+              <button onClick={resume} className="btn-success">
+                ▶ Resume
+              </button>
             )}
-            <button onClick={stop}>Stop</button>
+            <button onClick={stop} className="btn-danger">
+              ⏹ Stop
+            </button>
           </>
         )}
       </div>
 
+      {/* Preview Section */}
       {previewUrl && (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: '32px', padding: '24px', background: 'var(--light)', borderRadius: '12px' }}>
           <h4>Preview Video ({formatTime(recordingTime)})</h4>
-          <p style={{ color: '#666', fontSize: '14px' }}>Review your video before uploading</p>
-          <video src={previewUrl} controls style={{ width: '100%', maxWidth: 600 }} />
-          <div style={{ marginTop: 12, display: 'flex', gap: '8px' }}>
-            <button onClick={uploadVideo} disabled={uploading} style={{ backgroundColor: '#4caf50', color: 'white' }}>
-              {uploading ? 'Uploading...' : 'Upload Video'}
+          <p className="text-muted">Review your video before uploading</p>
+          <video src={previewUrl} controls style={{ width: '100%', maxWidth: 800, marginTop: '16px', borderRadius: '12px' }} />
+          <div className="flex gap-2" style={{ justifyContent: 'center', marginTop: '16px' }}>
+            <button onClick={uploadVideo} disabled={uploading} className="btn-success">
+              {uploading ? (
+                <>
+                  <span className="loading-spinner"></span>
+                  Uploading...
+                </>
+              ) : (
+                '📤 Upload Video'
+              )}
             </button>
-            <button onClick={discardVideo} disabled={uploading} style={{ backgroundColor: '#f44336', color: 'white' }}>
-              Discard & Record Again
+            <button onClick={discardVideo} disabled={uploading} className="btn-danger">
+              🗑 Discard & Record Again
             </button>
           </div>
         </div>
       )}
 
       {/* Video History Section */}
-      <div style={{ marginTop: 24, borderTop: '2px solid #e0e0e0', paddingTop: 20 }}>
-        <h3>My Uploaded Videos</h3>
+      <div style={{ marginTop: '48px', borderTop: '2px solid var(--border)', paddingTop: '32px' }}>
+        <div className="flex-between mb-3">
+          <h3>My Uploaded Videos ({filteredVideos.length})</h3>
+          {myVideos.length > 0 && (
+            <div className="search-container" style={{ maxWidth: '300px', width: '100%' }}>
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Search by date..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <span className="search-icon">🔍</span>
+            </div>
+          )}
+        </div>
+
         {loadingVideos ? (
-          <p>Loading videos...</p>
-        ) : myVideos.length === 0 ? (
-          <p style={{ color: '#666' }}>No videos uploaded yet. Record and upload your first video!</p>
+          <div className="loading-container">
+            <span className="loading-spinner"></span>
+            <span className="loading-text">Loading videos...</span>
+          </div>
+        ) : filteredVideos.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">📹</div>
+            <div className="empty-state-text">
+              {searchQuery ? 'No videos found matching your search' : 'No videos uploaded yet'}
+            </div>
+            <div className="empty-state-subtext">
+              {!searchQuery && 'Record and upload your first video!'}
+            </div>
+          </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px', marginTop: 16 }}>
-            {myVideos.map((video) => {
-              // Ensure path is normalized and starts with uploads/
+          <div className="video-grid">
+            {filteredVideos.map((video) => {
               let normalizedPath = video.file_path.replace(/\\/g, '/');
               if (!normalizedPath.startsWith('uploads/')) {
                 normalizedPath = `uploads/${normalizedPath.split('/').pop()}`;
               }
               
-              // Use backend URL from environment variable
               const backendUrl = getBackendBaseUrl();
               const videoUrl = `${backendUrl}/${normalizedPath}`;
               
               return (
-                <div key={video._id} style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '12px', background: '#f9f9f9' }}>
+                <div key={video._id} className="video-card">
                   <video 
                     src={videoUrl} 
                     controls 
                     preload="none"
                     crossOrigin="anonymous"
-                    style={{ width: '100%', borderRadius: '4px', marginBottom: '8px', maxHeight: '200px' }}
                     onError={(e) => {
                       console.error('Video playback error:', {
                         url: videoUrl,
@@ -312,22 +402,35 @@ export default function Recorder({ user ,setUser}) {
                         videoId: video._id,
                         error: e.target.error
                       });
-                      // Don't show alert for every error, just log
                     }}
-                    onLoadStart={() => console.log('Loading video:', videoUrl)}
                   />
-                  <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>
-                    Uploaded: {new Date(video.created_at).toLocaleString()}
-                  </p>
-                
-                  <a 
-                    href={videoUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    style={{ fontSize: '12px', color: '#667eea', textDecoration: 'none', display: 'block', marginTop: '4px' }}
-                  >
-                    Open in new tab
-                  </a>
+                  <div className="video-card-info">
+                    📅 {new Date(video.created_at).toLocaleString()}
+                  </div>
+                  <div className="video-card-actions">
+                    <button 
+                      onClick={() => downloadVideo(videoUrl, video._id)} 
+                      className="btn-sm btn-outline"
+                      style={{ flex: 1 }}
+                    >
+                      ⬇ Download
+                    </button>
+                    <button 
+                      onClick={() => deleteVideo(video._id)} 
+                      className="btn-sm btn-danger"
+                      disabled={deletingVideo === video._id}
+                      style={{ flex: 1 }}
+                    >
+                      {deletingVideo === video._id ? (
+                        <>
+                          <span className="loading-spinner"></span>
+                          Deleting...
+                        </>
+                      ) : (
+                        '🗑 Delete'
+                      )}
+                    </button>
+                  </div>
                 </div>
               );
             })}

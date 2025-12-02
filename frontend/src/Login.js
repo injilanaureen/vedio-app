@@ -22,18 +22,30 @@ export default function Login({ setUser }) {
 
   return (
     <div className="card">
-      <h2>Enter your email</h2>
+      <div className="text-center mb-3">
+        <h2>Welcome Back</h2>
+        <p className="text-muted">Sign in to continue</p>
+      </div>
       <input
+        type="email"
         value={email}
         onChange={e => setEmail(e.target.value)}
-        placeholder="email@example.com"
+        placeholder="Enter your email address"
+        onKeyPress={(e) => e.key === 'Enter' && submit()}
       />
-      <button onClick={submit} disabled={!email || loading}>
-        {loading ? 'Please wait...' : 'Continue'}
+      <button onClick={submit} disabled={!email || loading} className="btn-lg" style={{ width: '100%', marginTop: '16px' }}>
+        {loading ? (
+          <>
+            <span className="loading-spinner"></span>
+            Please wait...
+          </>
+        ) : (
+          'Continue'
+        )}
       </button>
 
-      <p style={{ marginTop: 12, color: '#666' }}>
-        To test admin view: in MongoDB change this user's `role` to <code>admin</code>.
+      <p className="text-muted text-center mt-2" style={{ fontSize: '14px' }}>
+        To test admin view: in MongoDB change this user's <code>role</code> to <code>admin</code>.
       </p>
     </div>
   );
