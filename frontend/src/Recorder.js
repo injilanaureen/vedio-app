@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import api from './api';
+import api, { getBackendBaseUrl } from './utils/api';
 import showAlert from './utils/alert';
 
-export default function Recorder({ user }) {
+export default function Recorder({ user ,setUser}) {
   const videoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -45,10 +45,19 @@ export default function Recorder({ user }) {
     setLoadingVideos(true);
     try {
       const userId = user._id || user.id;
-      const res = await api.get(`/vedio/my-videos/${userId}`);
-      setMyVideos(res.data);
+      const url = `/vedio/my-videos/${userId}`;
+      console.log('Fetching videos from:', url);
+      const res = await api.get(url);
+      console.log('Fetched videos:', res.data);
+      setMyVideos(res.data || []);
     } catch (err) {
       console.error('Failed to fetch videos:', err);
+      console.error('Error response:', err.response);
+      if (err.response?.status === 404) {
+        showAlert.error('Route not found. Please redeploy backend.', 'Error');
+      } else {
+        showAlert.error('Failed to load your videos: ' + (err.response?.data?.error || err.message), 'Error');
+      }
     } finally {
       setLoadingVideos(false);
     }
@@ -91,22 +100,38 @@ export default function Recorder({ user }) {
     setChunks([]);
     setPreviewUrl(null);
     setRecordingTime(0);
-    mediaRecorderRef.current = new MediaRecorder(stream);
+    
+    // Create MediaRecorder with options
+    const options = { mimeType: 'video/webm;codecs=vp8,opus' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      options.mimeType = 'video/webm';
+    }
+    mediaRecorderRef.current = new MediaRecorder(stream, options);
 
     mediaRecorderRef.current.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         chunksRef.current.push(e.data);
         setChunks([...chunksRef.current]);
+        console.log('Chunk received:', e.data.size, 'bytes. Total chunks:', chunksRef.current.length);
       }
     };
 
     mediaRecorderRef.current.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-      const url = URL.createObjectURL(blob);
-      setPreviewUrl(url);
+      // Wait a bit to ensure all chunks are collected
+      setTimeout(() => {
+        if (chunksRef.current.length > 0) {
+          const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+          console.log('Preview blob created:', blob.size, 'bytes from', chunksRef.current.length, 'chunks');
+          const url = URL.createObjectURL(blob);
+          setPreviewUrl(url);
+        } else {
+          console.error('No chunks available for preview');
+        }
+      }, 100);
     };
 
-    mediaRecorderRef.current.start();
+    // Start recording with timeslice to get chunks more frequently
+    mediaRecorderRef.current.start(1000); // Get chunks every 1 second
     setRecording(true);
     setPaused(false);
   };
@@ -127,31 +152,54 @@ export default function Recorder({ user }) {
 
   const stop = () => {
     if (!mediaRecorderRef.current) return;
+    
+    // Request final data before stopping
+    if (mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.requestData();
+    }
+    
     mediaRecorderRef.current.stop();
     setRecording(false);
     setPaused(false);
   };
 
   const uploadVideo = async () => {
-    if (chunks.length === 0 || !previewUrl) return showAlert.warning('No video to upload', 'Upload Error');
+    if (chunksRef.current.length === 0) {
+      return showAlert.warning('No video to upload', 'Upload Error');
+    }
     
     setUploading(true);
     try {
-      // Create blob from preview URL
-      const response = await fetch(previewUrl);
-      const blob = await response.blob();
+      // Create blob directly from chunks (more reliable than fetching from previewUrl)
+      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+      
+      console.log('Uploading video:', {
+        blobSize: blob.size,
+        chunksCount: chunksRef.current.length,
+        blobType: blob.type
+      });
       
       const form = new FormData();
       form.append('video', blob, 'recorded.webm');
       form.append('userId', user._id || user.id);
 
-      await api.post('/vedio/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const response = await api.post('/vedio/upload', form, { 
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          console.log('Upload progress:', percentCompleted + '%');
+        }
+      });
+      
+      console.log('Upload response:', response.data);
       showAlert.success('Video uploaded successfully!', 'Upload Complete');
       setChunks([]);
+      chunksRef.current = [];
       setPreviewUrl(null);
       setRecordingTime(0);
       fetchMyVideos(); // Refresh video list
     } catch (err) {
+      console.error('Upload error details:', err);
       showAlert.error('Upload failed: ' + (err.response?.data?.error || err.message), 'Upload Error');
     } finally {
       setUploading(false);
@@ -169,11 +217,21 @@ export default function Recorder({ user }) {
     setRecording(false);
     setPaused(false);
   };
+  const handleLogout = () => {
+    setUser(null);
+    showAlert.success('Logged out successfully!', 'Logout');
+  };
 
   return (
     <div className="card">
+        <button 
+          onClick={handleLogout}
+          style={{ backgroundColor: '#f44336', color: 'white', padding: '8px 16px' }}
+        >
+          Logout
+        </button>
       <h2>Welcome, {user.email}</h2>
-
+    
       <video
         ref={videoRef}
         autoPlay
@@ -229,18 +287,47 @@ export default function Recorder({ user }) {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px', marginTop: 16 }}>
             {myVideos.map((video) => {
-              const normalizedPath = video.file_path.replace(/\\/g, '/');
-              const videoUrl = `https://vedio-app-4pme.onrender.com/${normalizedPath}`;
+              // Ensure path is normalized and starts with uploads/
+              let normalizedPath = video.file_path.replace(/\\/g, '/');
+              if (!normalizedPath.startsWith('uploads/')) {
+                normalizedPath = `uploads/${normalizedPath.split('/').pop()}`;
+              }
+              
+              // Use backend URL from environment variable
+              const backendUrl = getBackendBaseUrl();
+              const videoUrl = `${backendUrl}/${normalizedPath}`;
+              
               return (
                 <div key={video._id} style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '12px', background: '#f9f9f9' }}>
                   <video 
                     src={videoUrl} 
                     controls 
+                    preload="none"
+                    crossOrigin="anonymous"
                     style={{ width: '100%', borderRadius: '4px', marginBottom: '8px', maxHeight: '200px' }}
+                    onError={(e) => {
+                      console.error('Video playback error:', {
+                        url: videoUrl,
+                        path: normalizedPath,
+                        videoId: video._id,
+                        error: e.target.error
+                      });
+                      // Don't show alert for every error, just log
+                    }}
+                    onLoadStart={() => console.log('Loading video:', videoUrl)}
                   />
                   <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>
                     Uploaded: {new Date(video.created_at).toLocaleString()}
                   </p>
+                
+                  <a 
+                    href={videoUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ fontSize: '12px', color: '#667eea', textDecoration: 'none', display: 'block', marginTop: '4px' }}
+                  >
+                    Open in new tab
+                  </a>
                 </div>
               );
             })}

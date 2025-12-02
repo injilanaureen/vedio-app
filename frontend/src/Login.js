@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import api from './api';
+import api from './utils/api';
 import showAlert from './utils/alert';
 
 export default function Login({ setUser }) {

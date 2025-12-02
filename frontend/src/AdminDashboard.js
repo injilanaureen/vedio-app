@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import api from './api';
+import api, { getBackendBaseUrl } from './utils/api';
 import showAlert from './utils/alert';
 
-export default function AdminDashboard({ user }) {
+export default function AdminDashboard({ user ,setUser}) {
   const [videos, setVideos] = useState([]);
   const [playerSrc, setPlayerSrc] = useState(null);
   const [composeEmailTo, setComposeEmailTo] = useState(null);
@@ -23,7 +23,8 @@ export default function AdminDashboard({ user }) {
   const openPlayer = (filePath) => {
     // Normalize path: replace backslashes with forward slashes for URLs
     const normalizedPath = filePath.replace(/\\/g, '/');
-    setPlayerSrc(`https://vedio-app-4pme.onrender.com/${normalizedPath}`);
+    const backendUrl = getBackendBaseUrl();
+    setPlayerSrc(`${backendUrl}/${normalizedPath}`);
   };
 
   const openEmailComposer = (email) => {
@@ -42,11 +43,24 @@ export default function AdminDashboard({ user }) {
       showAlert.error('Failed to send email: ' + (err.response?.data?.error || err.message), 'Email Error');
     }
   };
-
+const  handleLogout = () => {
+  setUser(null);
+  showAlert.success('Logged out successfully!', 'Success');
+}
   return (
     <div className="card">
-      <h2>Admin Dashboard</h2>
-      <p>Signed in as: {user.email}</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <h2>Admin Dashboard</h2>
+          <p>Signed in as: {user.email}</p>
+        </div>
+        <button 
+          onClick={handleLogout}
+          style={{ backgroundColor: '#f44336', color: 'white', padding: '8px 16px' }}
+        >
+          Logout
+        </button>
+      </div>
 
       <table className="simple-table">
         <thead>

@@ -2,7 +2,7 @@ import './App.css';
 import { useState } from 'react';
 import Login from './Login';
 import AdminDashboard from './AdminDashboard';
-import Recorder from './Recorder';
+import Recorder from './Recorder'
 
 function App() {
   const [user, setUser] = useState(null);
@@ -13,9 +13,9 @@ function App() {
       {!user ? (
         <Login setUser={setUser} />
       ) : user.role === 'admin' ? (
-        <AdminDashboard user={user} />
+        <AdminDashboard user={user} setUser={setUser} />
       ) : (
-        <Recorder user={user} />
+        <Recorder user={user} setUser={setUser} />
       )}
     </div>
   );
