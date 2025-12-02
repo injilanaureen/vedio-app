@@ -284,7 +284,7 @@ export default function Recorder({ user ,setUser}) {
           autoPlay
           playsInline
           muted
-          style={{ width: '100%', maxWidth: 800, borderRadius: '12px', margin: '0 auto', display: 'block' }}
+          style={{ width: '100%', maxWidth: 600, borderRadius: '12px', margin: '0 auto', display: 'block' }}
         />
       </div>
 
