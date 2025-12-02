@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import api from './api';
+import showAlert from './utils/alert';
 
 export default function Recorder({ user }) {
   const videoRef = useRef(null);
@@ -11,6 +12,8 @@ export default function Recorder({ user }) {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [myVideos, setMyVideos] = useState([]);
+  const [loadingVideos, setLoadingVideos] = useState(false);
   const timerIntervalRef = useRef(null);
   const startTimeRef = useRef(null);
 
@@ -21,7 +24,7 @@ export default function Recorder({ user }) {
         const videoElement = videoRef.current;
         if (videoElement) videoElement.srcObject = stream;
       } catch (err) {
-        alert('Camera access required: ' + err.message);
+        showAlert.error('Camera access required: ' + err.message, 'Camera Error');
       }
     }
     setup();
@@ -35,6 +38,25 @@ export default function Recorder({ user }) {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, []);
+
+  // Fetch user's videos
+  const fetchMyVideos = async () => {
+    if (!user?._id && !user?.id) return;
+    setLoadingVideos(true);
+    try {
+      const userId = user._id || user.id;
+      const res = await api.get(`/vedio/my-videos/${userId}`);
+      setMyVideos(res.data);
+    } catch (err) {
+      console.error('Failed to fetch videos:', err);
+    } finally {
+      setLoadingVideos(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMyVideos();
+  }, [user]);
 
   // Timer effect
   useEffect(() => {
@@ -63,7 +85,7 @@ export default function Recorder({ user }) {
 
   const start = () => {
     const stream = videoRef.current.srcObject;
-    if (!stream) return alert('Camera not available');
+    if (!stream) return showAlert.warning('Camera not available', 'Camera Error');
     
     chunksRef.current = [];
     setChunks([]);
@@ -111,7 +133,7 @@ export default function Recorder({ user }) {
   };
 
   const uploadVideo = async () => {
-    if (chunks.length === 0 || !previewUrl) return alert('No video to upload');
+    if (chunks.length === 0 || !previewUrl) return showAlert.warning('No video to upload', 'Upload Error');
     
     setUploading(true);
     try {
@@ -124,12 +146,13 @@ export default function Recorder({ user }) {
       form.append('userId', user._id || user.id);
 
       await api.post('/vedio/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      alert('Uploaded successfully');
+      showAlert.success('Video uploaded successfully!', 'Upload Complete');
       setChunks([]);
       setPreviewUrl(null);
       setRecordingTime(0);
+      fetchMyVideos(); // Refresh video list
     } catch (err) {
-      alert('Upload failed: ' + (err.response?.data?.error || err.message));
+      showAlert.error('Upload failed: ' + (err.response?.data?.error || err.message), 'Upload Error');
     } finally {
       setUploading(false);
     }
@@ -195,6 +218,35 @@ export default function Recorder({ user }) {
           </div>
         </div>
       )}
+
+      {/* Video History Section */}
+      <div style={{ marginTop: 24, borderTop: '2px solid #e0e0e0', paddingTop: 20 }}>
+        <h3>My Uploaded Videos</h3>
+        {loadingVideos ? (
+          <p>Loading videos...</p>
+        ) : myVideos.length === 0 ? (
+          <p style={{ color: '#666' }}>No videos uploaded yet. Record and upload your first video!</p>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px', marginTop: 16 }}>
+            {myVideos.map((video) => {
+              const normalizedPath = video.file_path.replace(/\\/g, '/');
+              const videoUrl = `https://vedio-app-4pme.onrender.com/${normalizedPath}`;
+              return (
+                <div key={video._id} style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '12px', background: '#f9f9f9' }}>
+                  <video 
+                    src={videoUrl} 
+                    controls 
+                    style={{ width: '100%', borderRadius: '4px', marginBottom: '8px', maxHeight: '200px' }}
+                  />
+                  <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>
+                    Uploaded: {new Date(video.created_at).toLocaleString()}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

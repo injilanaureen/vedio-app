@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from './api';
+import showAlert from './utils/alert';
 
 export default function AdminDashboard({ user }) {
   const [videos, setVideos] = useState([]);
@@ -13,7 +14,7 @@ export default function AdminDashboard({ user }) {
       const res = await api.get('/admin/videos');
       setVideos(res.data);
     } catch (err) {
-      alert('Failed to fetch videos');
+      showAlert.error('Failed to fetch videos', 'Error');
     }
   };
 
@@ -22,7 +23,7 @@ export default function AdminDashboard({ user }) {
   const openPlayer = (filePath) => {
     // Normalize path: replace backslashes with forward slashes for URLs
     const normalizedPath = filePath.replace(/\\/g, '/');
-    setPlayerSrc(`http://localhost:5000/${normalizedPath}`);
+    setPlayerSrc(`https://vedio-app-4pme.onrender.com/${normalizedPath}`);
   };
 
   const openEmailComposer = (email) => {
@@ -32,13 +33,13 @@ export default function AdminDashboard({ user }) {
   };
 
   const sendEmail = async () => {
-    if (!composeEmailTo || !message) return alert('Enter message');
+    if (!composeEmailTo || !message) return showAlert.warning('Please enter a message', 'Message Required');
     try {
       await api.post('/admin/send-email', { email: composeEmailTo, subject, message });
-      alert('Email sent');
+      showAlert.success('Email sent successfully!', 'Success');
       setComposeEmailTo(null);
     } catch (err) {
-      alert('Email failed');
+      showAlert.error('Failed to send email: ' + (err.response?.data?.error || err.message), 'Email Error');
     }
   };
 
