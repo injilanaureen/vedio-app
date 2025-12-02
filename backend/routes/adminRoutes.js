@@ -2,6 +2,7 @@ const router = require("express").Router();
 const Video = require("../models/Video");
 const nodemailer = require("nodemailer");
 const User = require("../models/User");
+const Email = require("../models/Email");
 
 // get all videos with user email
 router.get("/videos", async (req, res) => {
@@ -14,10 +15,23 @@ router.get("/videos", async (req, res) => {
   }
 });
 
+// Get email logs
+router.get("/email-logs", async (req, res) => {
+  try {
+    const emails = await Email.find()
+      .populate('sent_by', 'email')
+      .sort({ sent_at: -1 }); // Latest first
+    res.json(emails);
+  } catch (error) {
+    console.error('Get email logs error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // send email
 router.post("/send-email", async (req, res) => {
   try {
-    const { email, subject, message } = req.body;
+    const { email, subject, message, adminId } = req.body;
 
     if (!email || !message) {
       return res.status(400).json({ error: 'Email and message are required' });
@@ -32,14 +46,38 @@ router.post("/send-email", async (req, res) => {
       }
     });
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER || "admin@gmail.com",
-      to: email,
-      subject: subject || "Message from Admin",
-      text: message
-    });
+    let emailLog;
+    try {
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER || "admin@gmail.com",
+        to: email,
+        subject: subject || "Message from Admin",
+        text: message
+      });
 
-    res.json({ success: true, message: 'Email sent successfully' });
+      // Log successful email
+      emailLog = await Email.create({
+        to: email,
+        subject: subject || "Message from Admin",
+        message: message,
+        sent_by: adminId,
+        status: 'sent'
+      });
+
+      res.json({ success: true, message: 'Email sent successfully', emailLog });
+    } catch (emailError) {
+      // Log failed email
+      emailLog = await Email.create({
+        to: email,
+        subject: subject || "Message from Admin",
+        message: message,
+        sent_by: adminId,
+        status: 'failed',
+        error: emailError.message
+      });
+
+      throw emailError; // Re-throw to be caught by outer catch
+    }
   } catch (error) {
     console.error('Email error:', error);
     res.status(500).json({ error: 'Failed to send email: ' + error.message });

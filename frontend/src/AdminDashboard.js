@@ -4,10 +4,12 @@ import showAlert from './utils/alert';
 
 export default function AdminDashboard({ user ,setUser}) {
   const [videos, setVideos] = useState([]);
+  const [emailLogs, setEmailLogs] = useState([]);
   const [playerSrc, setPlayerSrc] = useState(null);
   const [composeEmailTo, setComposeEmailTo] = useState(null);
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [activeTab, setActiveTab] = useState('videos'); // 'videos' or 'emails'
 
   const fetchVideos = async () => {
     try {
@@ -18,7 +20,19 @@ export default function AdminDashboard({ user ,setUser}) {
     }
   };
 
-  useEffect(() => { fetchVideos(); }, []);
+  const fetchEmailLogs = async () => {
+    try {
+      const res = await api.get('/admin/email-logs');
+      setEmailLogs(res.data);
+    } catch (err) {
+      showAlert.error('Failed to fetch email logs', 'Error');
+    }
+  };
+
+  useEffect(() => { 
+    fetchVideos(); 
+    fetchEmailLogs();
+  }, []);
 
   const openPlayer = (filePath) => {
     // Normalize path: replace backslashes with forward slashes for URLs
@@ -36,11 +50,18 @@ export default function AdminDashboard({ user ,setUser}) {
   const sendEmail = async () => {
     if (!composeEmailTo || !message) return showAlert.warning('Please enter a message', 'Message Required');
     try {
-      await api.post('/admin/send-email', { email: composeEmailTo, subject, message });
+      await api.post('/admin/send-email', { 
+        email: composeEmailTo, 
+        subject, 
+        message,
+        adminId: user._id 
+      });
       showAlert.success('Email sent successfully!', 'Success');
       setComposeEmailTo(null);
+      fetchEmailLogs(); // Refresh email logs
     } catch (err) {
       showAlert.error('Failed to send email: ' + (err.response?.data?.error || err.message), 'Email Error');
+      fetchEmailLogs(); // Refresh logs even on error to show failed status
     }
   };
 const  handleLogout = () => {
@@ -62,6 +83,40 @@ const  handleLogout = () => {
         </button>
       </div>
 
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '2px solid #ddd' }}>
+        <button
+          onClick={() => setActiveTab('videos')}
+          style={{
+            padding: '10px 20px',
+            border: 'none',
+            background: activeTab === 'videos' ? '#4caf50' : 'transparent',
+            color: activeTab === 'videos' ? 'white' : '#666',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'videos' ? '2px solid #4caf50' : 'none',
+            marginBottom: '-2px'
+          }}
+        >
+          Videos ({videos.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('emails')}
+          style={{
+            padding: '10px 20px',
+            border: 'none',
+            background: activeTab === 'emails' ? '#4caf50' : 'transparent',
+            color: activeTab === 'emails' ? 'white' : '#666',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'emails' ? '2px solid #4caf50' : 'none',
+            marginBottom: '-2px'
+          }}
+        >
+          Email Logs ({emailLogs.length})
+        </button>
+      </div>
+
+      {/* Videos Table */}
+      {activeTab === 'videos' && (
       <table className="simple-table">
         <thead>
           <tr><th>Client Email</th><th>Uploaded At</th><th>Play</th><th>Send Email</th></tr>
@@ -81,6 +136,60 @@ const  handleLogout = () => {
           ))}
         </tbody>
       </table>
+      )}
+
+      {/* Email Logs Table */}
+      {activeTab === 'emails' && (
+        <table className="simple-table">
+          <thead>
+            <tr>
+              <th>To</th>
+              <th>Subject</th>
+              <th>Message</th>
+              <th>Sent By</th>
+              <th>Sent At</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {emailLogs.length === 0 ? (
+              <tr>
+                <td colSpan="6" style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                  No emails sent yet
+                </td>
+              </tr>
+            ) : (
+              emailLogs.map(email => (
+                <tr key={email._id}>
+                  <td>{email.to}</td>
+                  <td>{email.subject || '(No subject)'}</td>
+                  <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {email.message}
+                  </td>
+                  <td>{email.sent_by?.email || 'Unknown'}</td>
+                  <td>{new Date(email.sent_at).toLocaleString()}</td>
+                  <td>
+                    <span style={{
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: email.status === 'sent' ? '#4caf50' : '#f44336',
+                      color: 'white',
+                      fontSize: '12px'
+                    }}>
+                      {email.status === 'sent' ? '✓ Sent' : '✗ Failed'}
+                    </span>
+                    {email.error && (
+                      <div style={{ fontSize: '10px', color: '#f44336', marginTop: '4px' }}>
+                        {email.error.substring(0, 50)}...
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      )}
 
       {playerSrc && (
         <div style={{ marginTop: 12 }}>
